@@ -1,0 +1,297 @@
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+if getgenv().BonyaSwordCrosshairCleanup then
+	pcall(getgenv().BonyaSwordCrosshairCleanup)
+end
+
+local Config = {
+	Enabled = true,
+	FollowMouse = false,
+
+	-- Blade + outer triangle tip dimensions
+	Gap = 11,
+	Length = 24,
+	OuterPointLength = 10, -- Triangle point sticking out on the outer edge
+	GuardWidth = 9,
+	TipWidth = 1.2,
+
+	SpinSpeed = 2.8,
+	PulseSpeed = 3.2,
+	PulseGap = 3.5,
+
+	ColorCycleSpeed = 2.4,
+	RedColor = Color3.fromRGB(240, 35, 45),
+	DarkColor = Color3.fromRGB(18, 20, 26),
+
+	-- Synced glow on blades, outer triangles, and text
+	ShowGlow = true,
+	GlowSpread = 5,
+	GlowTransparency = 0.68,
+	TextGlowOffset = 2,
+	TextGlowTransparency = 0.62,
+
+	-- Label
+	ShowText = true,
+	Text = "yokai.win",
+	TextOffsetY = 46,
+	TextSize = 22,
+}
+
+local glowBlades = {}
+local coreBlades = {}
+local glowTips = {}
+local coreTips = {}
+
+for i = 1, 4 do
+	local glow = Drawing.new("Quad")
+	glow.Visible = false
+	glow.Filled = true
+	glow.Thickness = 1
+	glow.Transparency = Config.GlowTransparency
+	glow.ZIndex = 1
+	glowBlades[i] = glow
+
+	local blade = Drawing.new("Quad")
+	blade.Visible = false
+	blade.Filled = true
+	blade.Thickness = 1
+	blade.Transparency = 1
+	blade.ZIndex = 2
+	coreBlades[i] = blade
+
+	local gTip = Drawing.new("Triangle")
+	gTip.Visible = false
+	gTip.Filled = true
+	gTip.Thickness = 1
+	gTip.Transparency = Config.GlowTransparency
+	gTip.ZIndex = 1
+	glowTips[i] = gTip
+
+	local cTip = Drawing.new("Triangle")
+	cTip.Visible = false
+	cTip.Filled = true
+	cTip.Thickness = 1
+	cTip.Transparency = 1
+	cTip.ZIndex = 2
+	coreTips[i] = cTip
+end
+
+local labelGlows = {}
+for i = 1, 4 do
+	local gText = Drawing.new("Text")
+	gText.Visible = false
+	gText.Center = true
+	gText.Outline = false
+	gText.Size = Config.TextSize
+	gText.Text = Config.Text
+	gText.Transparency = Config.TextGlowTransparency
+	gText.ZIndex = 2
+	labelGlows[i] = gText
+end
+
+local label = Drawing.new("Text")
+label.Visible = false
+label.Center = true
+label.Outline = true
+label.Size = Config.TextSize
+label.Text = Config.Text
+label.ZIndex = 3
+
+local function rotatePoint(ox, oy, x, y, angle)
+	local s = math.sin(angle)
+	local c = math.cos(angle)
+	local dx = x - ox
+	local dy = y - oy
+	return Vector2.new(ox + (dx * c - dy * s), oy + (dx * s + dy * c))
+end
+
+local function makeBladeQuad(cx, cy, gap, length, guardW, tipW, angle)
+	local halfGuard = guardW * 0.5
+	local halfTip = tipW * 0.5
+
+	local tipY = cy - gap
+	local guardY = cy - (gap + length)
+
+	local p1 = rotatePoint(cx, cy, cx - halfGuard, guardY, angle)
+	local p2 = rotatePoint(cx, cy, cx + halfGuard, guardY, angle)
+	local p3 = rotatePoint(cx, cy, cx + halfTip, tipY, angle)
+	local p4 = rotatePoint(cx, cy, cx - halfTip, tipY, angle)
+
+	return p1, p2, p3, p4
+end
+
+local function makeOuterTriangle(cx, cy, gap, length, pointLen, guardW, angle)
+	local halfGuard = guardW * 0.5
+	local baseY = cy - (gap + length)
+	local apexY = baseY - pointLen
+
+	local t1 = rotatePoint(cx, cy, cx, apexY, angle)
+	local t2 = rotatePoint(cx, cy, cx - halfGuard, baseY, angle)
+	local t3 = rotatePoint(cx, cy, cx + halfGuard, baseY, angle)
+
+	return t1, t2, t3
+end
+
+local glowOffsets = {
+	Vector2.new(-1, 0),
+	Vector2.new(1, 0),
+	Vector2.new(0, -1),
+	Vector2.new(0, 1),
+}
+
+local spinAngle = 0
+local timeAcc = 0
+local conn
+
+conn = RunService.RenderStepped:Connect(function(dt)
+	if not Config.Enabled then
+		for i = 1, 4 do
+			glowBlades[i].Visible = false
+			coreBlades[i].Visible = false
+			glowTips[i].Visible = false
+			coreTips[i].Visible = false
+			labelGlows[i].Visible = false
+		end
+		label.Visible = false
+		return
+	end
+
+	spinAngle += dt * Config.SpinSpeed
+	timeAcc += dt
+
+	local colorAlpha = (math.sin(timeAcc * Config.ColorCycleSpeed) + 1) * 0.5
+	local activeColor = Config.RedColor:Lerp(Config.DarkColor, colorAlpha)
+
+	local pulseOffset = math.sin(timeAcc * Config.PulseSpeed) * Config.PulseGap
+	local currentGap = math.max(3, Config.Gap + pulseOffset)
+
+	local origin
+	if Config.FollowMouse then
+		local m = UserInputService:GetMouseLocation()
+		origin = Vector2.new(m.X, m.Y)
+	else
+		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+		origin = vp * 0.5
+	end
+
+	local cx, cy = origin.X, origin.Y
+
+	for i = 1, 4 do
+		local armAngle = ((i - 1) * (math.pi * 0.5)) + spinAngle
+
+		local b1, b2, b3, b4 = makeBladeQuad(
+			cx, cy,
+			currentGap,
+			Config.Length,
+			Config.GuardWidth,
+			Config.TipWidth,
+			armAngle
+		)
+
+		local blade = coreBlades[i]
+		blade.PointA = b1
+		blade.PointB = b2
+		blade.PointC = b3
+		blade.PointD = b4
+		blade.Color = activeColor
+		blade.Visible = true
+
+		local t1, t2, t3 = makeOuterTriangle(
+			cx, cy,
+			currentGap,
+			Config.Length,
+			Config.OuterPointLength,
+			Config.GuardWidth,
+			armAngle
+		)
+
+		local tip = coreTips[i]
+		tip.PointA = t1
+		tip.PointB = t2
+		tip.PointC = t3
+		tip.Color = activeColor
+		tip.Visible = true
+
+		local glow = glowBlades[i]
+		local gTip = glowTips[i]
+		if Config.ShowGlow then
+			local g1, g2, g3, g4 = makeBladeQuad(
+				cx, cy,
+				math.max(1, currentGap - Config.GlowSpread * 0.5),
+				Config.Length + Config.GlowSpread,
+				Config.GuardWidth + Config.GlowSpread,
+				Config.TipWidth + (Config.GlowSpread * 0.5),
+				armAngle
+			)
+			glow.PointA = g1
+			glow.PointB = g2
+			glow.PointC = g3
+			glow.PointD = g4
+			glow.Color = activeColor
+			glow.Transparency = Config.GlowTransparency
+			glow.Visible = true
+
+			local gt1, gt2, gt3 = makeOuterTriangle(
+				cx, cy,
+				math.max(1, currentGap - Config.GlowSpread * 0.5),
+				Config.Length + Config.GlowSpread,
+				Config.OuterPointLength + (Config.GlowSpread * 0.75),
+				Config.GuardWidth + Config.GlowSpread,
+				armAngle
+			)
+			gTip.PointA = gt1
+			gTip.PointB = gt2
+			gTip.PointC = gt3
+			gTip.Color = activeColor
+			gTip.Transparency = Config.GlowTransparency
+			gTip.Visible = true
+		else
+			glow.Visible = false
+			gTip.Visible = false
+		end
+	end
+
+	local textPos = Vector2.new(cx, cy + Config.TextOffsetY)
+	if Config.ShowText then
+		label.Text = Config.Text
+		label.Size = Config.TextSize
+		label.Color = activeColor
+		label.Position = textPos
+		label.Visible = true
+
+		for i = 1, 4 do
+			local gText = labelGlows[i]
+			if Config.ShowGlow then
+				gText.Text = Config.Text
+				gText.Size = Config.TextSize
+				gText.Color = activeColor
+				gText.Transparency = Config.TextGlowTransparency
+				gText.Position = textPos + (glowOffsets[i] * Config.TextGlowOffset)
+				gText.Visible = true
+			else
+				gText.Visible = false
+			end
+		end
+	else
+		label.Visible = false
+		for i = 1, 4 do
+			labelGlows[i].Visible = false
+		end
+	end
+end)
+
+getgenv().BonyaSwordCrosshairCleanup = function()
+	if conn then
+		conn:Disconnect()
+		conn = nil
+	end
+	for i = 1, 4 do
+		pcall(function() glowBlades[i]:Remove() end)
+		pcall(function() coreBlades[i]:Remove() end)
+		pcall(function() glowTips[i]:Remove() end)
+		pcall(function() coreTips[i]:Remove() end)
+		pcall(function() labelGlows[i]:Remove() end)
+	end
+	pcall(function() label:Remove() end)
+end
