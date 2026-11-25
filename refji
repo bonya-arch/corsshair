@@ -1,0 +1,50 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Tweak these to match the size/gap you want
+local ARM_LENGTH = 10
+local ARM_THICKNESS = 2
+local CENTER_GAP = 3
+local COLOR = Color3.fromRGB(0, 0, 0)
+local FOLLOW_MOUSE = false -- set true if not locked to center
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "CustomCrosshair"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local function makeArm(name)
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.BackgroundColor3 = COLOR
+	f.BorderSizePixel = 0
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Parent = gui
+	return f
+end
+
+local top = makeArm("Top")
+local bottom = makeArm("Bottom")
+local left = makeArm("Left")
+local right = makeArm("Right")
+
+top.Size = UDim2.fromOffset(ARM_THICKNESS, ARM_LENGTH)
+bottom.Size = UDim2.fromOffset(ARM_THICKNESS, ARM_LENGTH)
+left.Size = UDim2.fromOffset(ARM_LENGTH, ARM_THICKNESS)
+right.Size = UDim2.fromOffset(ARM_LENGTH, ARM_THICKNESS)
+
+RunService.RenderStepped:Connect(function()
+	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+	local pos = FOLLOW_MOUSE and UserInputService:GetMouseLocation() or (vp * 0.5)
+	local offset = CENTER_GAP + (ARM_LENGTH * 0.5)
+
+	top.Position = UDim2.fromOffset(pos.X, pos.Y - offset)
+	bottom.Position = UDim2.fromOffset(pos.X, pos.Y + offset)
+	left.Position = UDim2.fromOffset(pos.X - offset, pos.Y)
+	right.Position = UDim2.fromOffset(pos.X + offset, pos.Y)
+end)
